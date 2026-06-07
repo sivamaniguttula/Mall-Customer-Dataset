@@ -1,0 +1,189 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+import seaborn as sns
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# ============================================================================
+# Step 1: Generate Sample Customer Purchase Data
+# ============================================================================
+
+def generate_customer_data(n_customers=200):
+    """
+    Generate sample customer purchase history data
+    """
+    data = {
+        'Customer_ID': range(1, n_customers + 1),
+        'Total_Spending': np.random.uniform(100, 5000, n_customers),
+        'Purchase_Frequency': np.random.randint(1, 50, n_customers),
+        'Avg_Order_Value': np.random.uniform(20, 500, n_customers),
+        'Days_Since_Last_Purchase': np.random.randint(1, 365, n_customers),
+        'Product_Diversity': np.random.randint(1, 20, n_customers)
+    }
+    return pd.DataFrame(data)
+
+# ============================================================================
+# Step 2: Data Preprocessing
+# ============================================================================
+
+class CustomerClusteringKMeans:
+    def __init__(self, n_clusters=3, random_state=42):
+        self.n_clusters = n_clusters
+        self.random_state = random_state
+        self.scaler = StandardScaler()
+        self.kmeans = None
+        self.scaled_data = None
+        self.df = None
+        
+    def preprocess_data(self, df):
+        """
+        Prepare data for clustering
+        """
+        self.df = df.copy()
+        
+        # Select features for clustering (exclude Customer_ID)
+        features = df.columns[1:]  # All columns except Customer_ID
+        
+        # Handle missing values
+        self.df[features] = self.df[features].fillna(self.df[features].mean())
+        
+        # Standardize features
+        self.scaled_data = self.scaler.fit_transform(self.df[features])
+        
+        return self.scaled_data
+    
+    def find_optimal_clusters(self, data, max_clusters=10):
+        """
+        Use elbow method and silhouette score to find optimal clusters
+        """
+        inertias = []
+        silhouette_scores = []
+        k_range = range(2, max_clusters + 1)
+        
+        for k in k_range:
+            kmeans_temp = KMeans(n_clusters=k, random_state=self.random_state, n_init=10)
+            kmeans_temp.fit(data)
+            inertias.append(kmeans_temp.inertia_)
+            silhouette_scores.append(silhouette_score(data, kmeans_temp.labels_))
+        
+        # Plot results
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+        
+        # Elbow curve
+        axes[0].plot(k_range, inertias, 'bo-', linewidth=2, markersize=8)
+        axes[0].set_xlabel('Number of Clusters (k)', fontsize=12)
+        axes[0].set_ylabel('Inertia', fontsize=12)
+        axes[0].set_title('Elbow Method for Optimal k', fontsize=14, fontweight='bold')
+        axes[0].grid(True, alpha=0.3)
+        
+        # Silhouette score
+        axes[1].plot(k_range, silhouette_scores, 'ro-', linewidth=2, markersize=8)
+        axes[1].set_xlabel('Number of Clusters (k)', fontsize=12)
+        axes[1].set_ylabel('Silhouette Score', fontsize=12)
+        axes[1].set_title('Silhouette Score for Different k', fontsize=14, fontweight='bold')
+        axes[1].grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.show()
+        
+        return inertias, silhouette_scores
+    
+    def fit(self, data):
+        """
+        Fit K-means model
+        """
+        self.kmeans = KMeans(n_clusters=self.n_clusters, 
+                            random_state=self.random_state, 
+                            n_init=10,
+                            max_iter=300)
+        self.kmeans.fit(data)
+        return self.kmeans.labels_
+    
+    def predict(self, data):
+        """
+        Predict cluster for new data
+        """
+        if self.kmeans is None:
+            raise ValueError("Model not fitted yet. Call fit() first.")
+        return self.kmeans.predict(data)
+    
+    def add_cluster_labels(self, df, labels):
+        """
+        Add cluster labels to original dataframe
+        """
+        df['Cluster'] = labels
+        return df
+
+# ============================================================================
+# Step 3: Cluster Analysis and Interpretation
+# ============================================================================
+
+def analyze_clusters(df):
+    """
+    Analyze and interpret customer clusters
+    """
+    print("\n" + "="*80)
+    print("CLUSTER ANALYSIS SUMMARY")
+    print("="*80 + "\n")
+    
+    cluster_summary = df.groupby('Cluster').agg({
+        'Total_Spending': ['mean', 'min', 'max'],
+        'Purchase_Frequency': ['mean', 'min', 'max'],
+        'Avg_Order_Value': ['mean', 'min', 'max'],
+        'Days_Since_Last_Purchase': ['mean', 'min', 'max'],
+        'Product_Diversity': ['mean', 'min', 'max'],
+        'Customer_ID': 'count'
+    }).round(2)
+    
+    cluster_summary.columns = ['_'.join(col).strip() for col in cluster_summary.columns.values]
+    cluster_summary.rename(columns={'Customer_ID_count': 'Num_Customers'}, inplace=True)
+    
+    print(cluster_summary)
+    print("\n")
+    
+    # Provide business insights
+    for cluster in df['Cluster'].unique():
+        cluster_data = df[df['Cluster'] == cluster]
+        avg_spending = cluster_data['Total_Spending'].mean()
+        avg_frequency = cluster_data['Purchase_Frequency'].mean()
+        num_customers = len(cluster_data)
+        
+        print(f"Cluster {cluster}: {num_customers} customers")
+        print(f"  - Average Spending: ${avg_spending:.2f}")
+        print(f"  - Average Purchase Frequency: {avg_frequency:.1f} purchases")
+        print()
+
+# ============================================================================
+# Step 4: Visualization
+# ============================================================================
+
+def visualize_clusters(df, features=['Total_Spending', 'Purchase_Frequency', 'Avg_Order_Value']):
+    """
+    Visualize clusters using different feature combinations
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    # 2D scatter: Total Spending vs Purchase Frequency
+    scatter1 = axes[0, 0].scatter(df['Total_Spending'], df['Purchase_Frequency'], 
+                                   c=df['Cluster'], cmap='viridis', s=100, alpha=0.6, edgecolors='k')
+    axes[0, 0].set_xlabel('Total Spending ($)', fontsize=11)
+    axes[0, 0].set_ylabel('Purchase Frequency', fontsize=11)
+    axes[0, 0].set_title('Cluster: Spending vs Frequency', fontsize=12, fontweight='bold')
+    plt.colorbar(scatter1, ax=axes[0, 0])
+    
+    # 2D scatter: Purchase Frequency vs Days Since Last Purchase
+    scatter2 = axes[0, 1].scatter(df['Purchase_Frequency'], df['Days_Since_Last_Purchase'], 
+                                   c=df['Cluster'], cmap='viridis', s=100, alpha=0.6, edgecolors='k')
+    axes[0, 1].set_xlabel('Purchase Frequency', fontsize=11)
+    axes[0, 1].set_ylabel('Days Since Last Purchase', fontsize=11)
+    axes[0, 1].set_title('Cluster: Frequency vs Recency', fontsize=12, fontweight='bold')
+    plt.colorbar(scatter2, ax=axes[0, 1])
+    
+    # Box plot: Total Spending by Cluster
+    df.boxplot(column='Total_Spending', by='Cluster', ax=axes[1, 0])
+    axes[1, 0
